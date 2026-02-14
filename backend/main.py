@@ -6,16 +6,15 @@ import os
 
 # Internal imports
 from database import engine, get_db
-from services.ai_engine import ask_kortex
+from services.ai_engine import ask_kortex, extract_text_from_pdf, ask_kortex_with_context
 import models
 import schemas
 
-# Initialize Database tables
+# Initialize Database
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Kortex API", version="0.1.0")
 
-# Ensure upload directory exists
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
@@ -25,26 +24,53 @@ if not os.path.exists(UPLOAD_DIR):
 def health():
     return {"status": "Kortex is Alive", "brain": "Gemini 3 Flash"}
 
-# --- AI Chat ---
+# --- Context-Aware Chat (NEW) ---
+@app.get("/courses/{course_id}/ask")
+def ask_about_course(course_id: int, query: str, db: Session = Depends(get_db)):
+    """Extracts PDF text and asks Gemini based on the course material."""
+    # 1. Fetch course from DB
+    course = db.query(models.Course).filter(models.Course.id == course_id).first()
+    if not course or not course.file_path:
+        raise HTTPException(status_code=404, detail="Course material not found")
+
+    # 2. Extract text from the saved PDF
+    context = extract_text_from_pdf(course.file_path)
+    
+    # 3. Get AI response using the extracted context
+    response = ask_kortex_with_context(context, query)
+    
+    return {
+        "course": course.title,
+        "query": query,
+        "kortex_response": response
+    }
+
+# --- General AI Chat ---
 @app.get("/ask")
 def chat_with_kortex(query: str):
-    """General AI chat endpoint."""
     response = ask_kortex(query)
     return {"query": query, "kortex_response": response}
 
-# --- User Management ---
-@app.post("/users/", response_model=schemas.User)
-def create_user(name: str, email: str, db: Session = Depends(get_db)):
-    new_user = models.User(full_name=name, email=email)
-    db.add(new_user)
+# --- File Upload ---
+@app.post("/courses/{course_id}/upload")
+async def upload_course_file(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    course = db.query(models.Course).filter(models.Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+        
+    course.file_path = file_path
     db.commit()
-    db.refresh(new_user)
-    return new_user
+    
+    return {"status": "File uploaded", "course_id": course_id}
 
-# --- Course Management ---
+# --- Course & User Management ---
 @app.post("/courses/", response_model=schemas.Course)
 def create_course(course: schemas.CourseCreate, db: Session = Depends(get_db)):
-    """Create a new course entry."""
     db_course = models.Course(**course.model_dump())
     db.add(db_course)
     db.commit()
@@ -53,30 +79,4 @@ def create_course(course: schemas.CourseCreate, db: Session = Depends(get_db)):
 
 @app.get("/courses/", response_model=List[schemas.Course])
 def read_courses(db: Session = Depends(get_db)):
-    """Retrieve all courses."""
     return db.query(models.Course).all()
-
-# --- File Upload ---
-@app.post("/courses/{course_id}/upload")
-async def upload_course_file(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload PDF/PPTX for a specific course and save path to DB."""
-    # 1. Define file path
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
-    # 2. Save file to disk
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # 3. Update Course in DB
-    course = db.query(models.Course).filter(models.Course.id == course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-        
-    course.file_path = file_path
-    db.commit()
-    
-    return {
-        "filename": file.filename,
-        "course_id": course_id,
-        "status": "File uploaded and linked successfully"
-    }
