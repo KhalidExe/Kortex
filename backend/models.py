@@ -8,6 +8,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
+    
+    # Relationships
     courses = relationship("Course", back_populates="owner")
 
 class Course(Base):
@@ -17,8 +19,11 @@ class Course(Base):
     title = Column(String, index=True)
     code = Column(String)
     description = Column(String, nullable=True)
-    file_path = Column(String, nullable=True)  
+    file_path = Column(String, nullable=True) # New column for PDF/PPTX paths
+    
     owner_id = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
     owner = relationship("User", back_populates="courses")
     tasks = relationship("Task", back_populates="course")
 
@@ -30,5 +35,8 @@ class Task(Base):
     description = Column(String, nullable=True)
     is_completed = Column(Boolean, default=False)
     due_date = Column(DateTime, nullable=True)
+    
     course_id = Column(Integer, ForeignKey("courses.id"))
+    
+    # Relationships
     course = relationship("Course", back_populates="tasks")
