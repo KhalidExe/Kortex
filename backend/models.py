@@ -17,6 +17,7 @@ class Course(Base):
     title = Column(String, index=True)
     code = Column(String)
     description = Column(String, nullable=True)
+    file_path = Column(String, nullable=True)  
     owner_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("User", back_populates="courses")
     tasks = relationship("Task", back_populates="course")
