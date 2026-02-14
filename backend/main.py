@@ -1,4 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from database import engine, SessionLocal, get_db
+import models
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Kortex API",
@@ -6,10 +11,14 @@ app = FastAPI(
     version="0.1.0"
 )
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to Kortex API", "status": "online"}
+@app.post("/users/")
+def create_user(name: str, email: str, db: Session = Depends(get_db)):
+    new_user = models.User(full_name=name, email=email)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+@app.get("/")
+def read_root():
+    return {"message": "Kortex Brain is Active 🧠", "status": "Database Connected"}
